@@ -1,0 +1,119 @@
+AWSTemplateFormatVersion: '2010-09-09'
+Description: Static website hosting using CloudFront and S3
+Transform: 'AWS::Serverless-2016-10-31'
+
+# Referenced template: https://github.com/aws-samples/amazon-cloudfront-secure-static-site
+
+Parameters:
+  HostedZoneId:
+    Description: HostedZoneId for the domain e.g. Z23ABC4XYZL05B
+    Type: String
+
+Resources:
+  WebsiteCertificate:
+    Type: AWS::CertificateManager::Certificate
+    Properties:
+      DomainName: 'genenakagaki.com'
+      DomainValidationOptions:
+        - DomainName: 'genenakagaki.com'
+          HostedZoneId: !Ref HostedZoneId
+      ValidationMethod: DNS
+
+  WebsiteRoute53RecordSetGroup:
+    Type: AWS::Route53::RecordSetGroup
+    Properties:
+      HostedZoneName: 'genenakagaki.com.'
+      RecordSets:
+      - Name: 'genenakagaki.com'
+        # This is for IPv4
+        Type: 'A'
+        AliasTarget:
+          DNSName: !GetAtt WebsiteCloudFrontDistribution.DomainName
+          EvaluateTargetHealth: false
+          # The  following HosteZoneId is always used for alias records pointing to CF.
+          HostedZoneId: 'Z2FDTNDATAQYW2'
+      - Name: 'genenakagaki.com'
+        # Required for IPv6
+        Type: 'AAAA'
+        AliasTarget:
+          DNSName: !GetAtt WebsiteCloudFrontDistribution.DomainName
+          EvaluateTargetHealth: false
+          # The  following HosteZoneId is always used for alias records pointing to CF.
+          HostedZoneId: 'Z2FDTNDATAQYW2'
+
+  WebsiteRootS3Bucket:
+    Type: AWS::S3::Bucket
+    Properties:
+      BucketName: !Sub '${AWS::StackName}-root-bucket'
+
+  WebsiteS3BucketPolicy:
+    Type: AWS::S3::BucketPolicy
+    Properties:
+      Bucket: !Ref WebsiteRootS3Bucket
+      PolicyDocument:
+        Version: '2012-10-17'
+        Statement:
+          - Action:
+              - s3:GetObject
+            Effect: Allow
+            Resource: !Join ['', [!GetAtt WebsiteRootS3Bucket.Arn,  '/*']]
+            Principal:
+              CanonicalUser: !GetAtt WebsiteCloudFrontOAI.S3CanonicalUserId
+      
+  WebsiteCloudFrontDistribution:
+    Type: AWS::CloudFront::Distribution
+    Properties:
+      DistributionConfig:
+        Aliases:
+          - 'genenakagaki.com'
+        Enabled: true
+        HttpVersion: 'http2'
+        IPV6Enabled: true
+        PriceClass: 'PriceClass_All'
+        DefaultCacheBehavior:
+          CachePolicyId: !Ref WebsiteCloudFrontCachePolicy
+          Compress: true
+          TargetOriginId: 'website-root-s3'
+          ViewerProtocolPolicy: 'redirect-to-https'
+        DefaultRootObject: 'index.html'
+        CustomErrorResponses:
+          - ErrorCachingMinTTL: 60
+            ErrorCode: 404
+            ResponseCode: 404
+            ResponsePagePath: '/404.html'
+        Origins:
+          - Id: 'website-root-s3'
+            DomainName: !GetAtt WebsiteRootS3Bucket.DomainName
+            S3OriginConfig:
+              OriginAccessIdentity:
+                !Join ['', ['origin-access-identity/cloudfront/', !Ref WebsiteCloudFrontOAI]]
+        ViewerCertificate:
+          AcmCertificateArn: !Ref WebsiteCertificate
+          MinimumProtocolVersion: 'TLSv1.1_2016'
+          SslSupportMethod: 'sni-only'
+
+  WebsiteCloudFrontCachePolicy:
+    Type: AWS::CloudFront::CachePolicy
+    Properties: 
+      CachePolicyConfig:
+        Name: !Sub '${AWS::StackName}-cache-policy'
+        Comment: 'CachePolicy for website'
+        DefaultTTL: 86400 # in seconds (one day)
+        MaxTTL: 31536000 # in seconds (one year)
+        MinTTL: 1 # Must be at least 1
+        ParametersInCacheKeyAndForwardedToOrigin: 
+          CookiesConfig:
+            CookieBehavior: 'none'
+          EnableAcceptEncodingBrotli: true
+          EnableAcceptEncodingGzip: true
+          HeadersConfig: 
+            HeaderBehavior: 'none'
+          QueryStringsConfig:
+            QueryStringBehavior: 'none'
+
+  WebsiteCloudFrontOAI:
+    Type: AWS::CloudFront::CloudFrontOriginAccessIdentity
+    Properties:
+      CloudFrontOriginAccessIdentityConfig:
+        Comment: 'CloudFront OAI for website'
+
