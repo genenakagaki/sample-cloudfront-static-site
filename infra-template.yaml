@@ -59,6 +59,12 @@ Resources:
             Resource: !Join ['', [!GetAtt WebsiteRootS3Bucket.Arn,  '/*']]
             Principal:
               CanonicalUser: !GetAtt WebsiteCloudFrontOAI.S3CanonicalUserId
+          - Action:
+              - s3:ListBucket
+            Effect: Allow
+            Resource: !GetAtt WebsiteRootS3Bucket.Arn
+            Principal:
+              CanonicalUser: !GetAtt WebsiteCloudFrontOAI.S3CanonicalUserId
       
   WebsiteCloudFrontDistribution:
     Type: AWS::CloudFront::Distribution
